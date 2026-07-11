@@ -1,0 +1,16 @@
+2026-06-17 14:59:48 | INFO     | TaskQueueManager.py:55 | TaskQueueManager 初始化完成，worker=1  db=/Volumes/Projects/projects/ERREN/OCRServiceApi/task_db/tasks.db  内存使用: 521 MB / 软限制 4096 MB (12.7%)，硬限制 5120 MB
+2026-06-17 15:00:02 | INFO     | OCRDetector.py:50 | mkldnn 加速: True
+2026-06-17 15:00:02 | INFO     | TaskStore.py:61 | TaskStore 初始化完成  db=/Volumes/Projects/projects/ERREN/OCRServiceApi/task_db/tasks.db
+2026-06-17 15:00:02 | INFO     | TaskQueueManager.py:55 | TaskQueueManager 初始化完成，worker=1  db=/Volumes/Projects/projects/ERREN/OCRServiceApi/task_db/tasks.db  内存使用: 525 MB / 软限制 4096 MB (12.8%)，硬限制 5120 MB
+2026-06-17 15:00:02 | WARNING  | MemoryGuard.py:71 | 内存硬限制设置失败（将依赖软限制）: current limit exceeds maximum limit
+2026-06-17 15:00:02 | INFO     | main.py:56 | 内存配置：内存使用: 452 MB / 软限制 4096 MB (11.0%)，硬限制 5120 MB
+2026-06-17 15:00:02 | INFO     | main.py:59 | 服务启动：开始预加载 OCR 离线模型 ···
+2026-06-17 15:00:02 | INFO     | OCRDetector.py:151 | OCR 模型预热开始 ···
+2026-06-17 15:00:05 | INFO     | OCRDetector.py:78 | PaddleOCR 加载完毕 (mkldnn=True)，耗时 3.33s
+2026-06-17 15:00:05 | INFO     | OCRDetector.py:154 | OCR 模型预热完成，耗时 3.33s
+2026-06-17 15:00:05 | INFO     | main.py:62 | OCR 模型预加载完成，内存使用: 472 MB / 软限制 4096 MB (11.5%)，硬限制 5120 MB
+2026-06-17 15:00:05 | INFO     | TaskQueueManager.py:94 | 已启动 1 个后台 worker + 定时清理协程
+2026-06-17 15:00:05 | INFO     | main.py:73 | 后台 worker 已就绪
+2026-06-17 15:00:05 | INFO     | TaskQueueManager.py:99 | Worker-0 就绪
+2026-06-17 15:00:05 | INFO     | TaskQueueManager.py:116 | 定时清理协程已启动，TTL=604800s  间隔=21600s
+2026-06-17 15:51:19 | INFO     | main.py:76 | 应用关闭
