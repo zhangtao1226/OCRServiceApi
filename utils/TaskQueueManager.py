@@ -191,7 +191,7 @@ class TaskQueueManager:
 
         - PDF：逐页渲染到内存并 OCR
         - 图片：直接 OCR
-        - Word：优先提取文本，再 OCR 内嵌图片
+        - Word：可直接读取时返回文本，否则整份文档转 PDF 后 OCR
 
         返回 JSON 字符串：
         {
