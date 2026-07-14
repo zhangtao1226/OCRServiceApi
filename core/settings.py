@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 100
     max_pdf_pages: int = 200
     max_queue_size: int = 100
+    temp_file_retention_seconds: int = 24 * 3600
+    temp_cleanup_interval_seconds: int = 3600
 
     # 临时ocr结果json文件保存路径
     ocr_json_result_path:str = f"{root_path}/output/json_files"

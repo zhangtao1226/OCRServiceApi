@@ -17,7 +17,6 @@ from utils.TaskStore import TaskStore, OCRTask, TaskStatus
 
 # 已完成/失败任务的 TTL（秒），默认 7 天
 TASK_TTL_SECONDS:      int = 7 * 24 * 3600
-CLEANUP_INTERVAL_SECONDS: int = 6 * 3600
 
 
 class TaskQueueManager:
@@ -135,15 +134,18 @@ class TaskQueueManager:
                 self._queue.task_done()
 
     async def _cleanup_loop(self):
+        from core.settings import settings
+
         logger.info("定时清理协程已启动，TTL=%ds  间隔=%ds",
-                    TASK_TTL_SECONDS, CLEANUP_INTERVAL_SECONDS)
+                    TASK_TTL_SECONDS, settings.temp_cleanup_interval_seconds)
         while True:
-            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            await asyncio.sleep(settings.temp_cleanup_interval_seconds)
             try:
                 cutoff  = time.time() - TASK_TTL_SECONDS
                 deleted = self._store.delete_finished_before(cutoff)
                 if deleted:
                     logger.info("定时清理：已删除 %d 条过期任务记录", deleted)
+                self._cleanup_orphan_files()
             except Exception as exc:
                 logger.warning("定时清理出错: %s", exc)
 
@@ -176,9 +178,6 @@ class TaskQueueManager:
             )
             logger.error("[%s] OCR 失败: %s", task.task_id, exc)
 
-        finally:
-            _remove_file(task.task_id, task.file_path)
-
         # 回调通知（取最新状态）
         latest = self._store.get(task.task_id)
         if latest and latest.callback_url:
@@ -188,42 +187,53 @@ class TaskQueueManager:
     def _run_ocr_pipeline(task: OCRTask) -> str:
         """
         阻塞执行 OCR 识别，在 executor 线程中运行。
-
-        - PDF：逐页渲染到内存并 OCR
-        - 图片：直接 OCR
-        - Word：可直接读取时返回文本，否则整份文档转 PDF 后 OCR
-
-        返回 JSON 字符串：
-        {
-            "file_type": "pdf" | "image",
-            "pages": [
-                {
-                    "page": 1,
-                    "rec_texts":  [...],
-                    "rec_scores": [...],
-                    "rec_polys":  [...],
-                    "dt_polys":   [...]
-                },
-                ...
-            ]
-        }
         """
         from utils.OCRDetector import OCRDetector
         from core.settings import settings
         from utils.WordDocumentProcessor import WordDocumentProcessor
 
-        ocr = OCRDetector()
+        try:
+            ocr = OCRDetector()
+            if task.file_type == "pdf":
+                return TaskQueueManager._ocr_pdf(task, ocr, settings)
+            if task.file_type == "word":
+                return json.dumps(
+                    WordDocumentProcessor.process(task.file_path, ocr), ensure_ascii=False
+                )
+            return TaskQueueManager._ocr_image(task, ocr)
+        finally:
+            # 在线程内清理，确保协程被取消时也不会在 OCR 尚未结束前误删源文件。
+            _remove_file(task.task_id, task.file_path)
 
-        if task.file_type == "pdf":
-            result_json = TaskQueueManager._ocr_pdf(task, ocr, settings)
-        elif task.file_type == "word":
-            result_json = json.dumps(
-                WordDocumentProcessor.process(task.file_path, ocr), ensure_ascii=False
-            )
-        else:
-            result_json = TaskQueueManager._ocr_image(task, ocr)
+    def _cleanup_orphan_files(self) -> None:
+        """删除超期孤儿文件，但保留数据库中尚未完成任务的源文件。"""
+        from core.settings import settings
 
-        return result_json
+        active_paths = self._store.unfinished_file_paths()
+        cutoff = time.time() - settings.temp_file_retention_seconds
+        removed = 0
+        for directory in (settings.temp_upload_path, settings.temp_image_path):
+            if not os.path.isdir(directory):
+                continue
+            try:
+                entries = os.scandir(directory)
+            except OSError as exc:
+                logger.warning("无法扫描临时目录 %s: %s", directory, exc)
+                continue
+            with entries:
+                for entry in entries:
+                    path = os.path.abspath(entry.path)
+                    try:
+                        if not entry.is_file(follow_symlinks=False):
+                            continue
+                        if path in active_paths or entry.stat(follow_symlinks=False).st_mtime >= cutoff:
+                            continue
+                        os.remove(path)
+                        removed += 1
+                    except OSError as exc:
+                        logger.warning("过期临时文件删除失败 %s: %s", path, exc)
+        if removed:
+            logger.info("定时清理：已删除 %d 个过期孤儿临时文件", removed)
 
     @staticmethod
     def _ocr_pdf(task: OCRTask, ocr, settings) -> str:
@@ -278,20 +288,6 @@ class TaskQueueManager:
 
 
 # ── 工具函数 ───────────────────────────────────────────────────────────
-
-def _remove_temp_files(task_id: str, paths: list[str]) -> None:
-    """删除临时文件，仅记录警告，不抛出异常。"""
-    removed = failed = 0
-    for p in paths:
-        try:
-            if os.path.exists(p):
-                os.remove(p)
-                removed += 1
-        except Exception as e:
-            logger.warning("[%s] 临时文件删除失败 %s: %s", task_id, p, e)
-            failed += 1
-    logger.info("[%s] 临时文件清理：删除 %d 个，失败 %d 个", task_id, removed, failed)
-
 
 def _remove_file(task_id: str, path: str) -> None:
     try:

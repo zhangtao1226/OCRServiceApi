@@ -7,6 +7,7 @@
 import sqlite3
 import time
 import threading
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -130,6 +131,16 @@ class TaskStore:
             conn.commit()
             conn.close()
         return [self._row_to_task(row) for row in rows]
+
+    def unfinished_file_paths(self) -> set[str]:
+        """返回待处理和处理中的源文件绝对路径，供临时文件清理排除。"""
+        with self._lock:
+            conn = self._connect()
+            rows = conn.execute(
+                "SELECT file_path FROM tasks WHERE status IN ('pending', 'processing')"
+            ).fetchall()
+            conn.close()
+        return {os.path.abspath(row["file_path"]) for row in rows}
 
     def delete_finished_before(self, cutoff_ts: float) -> int:
         """

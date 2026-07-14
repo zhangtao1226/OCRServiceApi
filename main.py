@@ -152,6 +152,11 @@ async def create_ocr_task(
             os.remove(save_path)
         raise
     except Exception as e:
+        if os.path.isfile(save_path):
+            try:
+                os.remove(save_path)
+            except OSError as cleanup_error:
+                logger.warning("上传残留文件清理失败 %s: %s", save_path, cleanup_error)
         logger.error("文件保存失败: %s", e)
         return ResponseUtil.server_error(message=f"文件保存失败: {e}")
 
@@ -163,6 +168,10 @@ async def create_ocr_task(
         if os.path.exists(save_path):
             os.remove(save_path)
         raise HTTPException(status_code=503, detail="任务队列已满，请稍后重试")
+    except Exception:
+        if os.path.isfile(save_path):
+            os.remove(save_path)
+        raise
     logger.info("OCR 任务入队 task_id=%s  file_type=%s", task.task_id, file_type)
 
     resp = {

@@ -7,7 +7,7 @@
 - 支持 JPEG、PNG、TIFF、BMP、WebP 图片。
 - 支持多页 PDF，逐页在内存中渲染和识别。
 - 支持 `.docx` 和 `.doc` Word 文档。
-- Word 可直接读取内容时不执行 OCR；无法读取有效文本时才执行 OCR。
+- Word 能直接读取全文时不执行 OCR；无法读取有效文字时执行 OCR，并使用与 PDF、图片一致的结果字段。
 - PaddleOCR 模型启动预热并在进程内复用。
 - 异步任务提交、状态查询和结果查询。
 - SQLite 任务持久化，服务重启后恢复未完成任务。
@@ -17,18 +17,18 @@
 
 ## Word 处理规则
 
-Word、PDF 和图片都是本服务支持的输入类型。由于 Word 可能包含可直接读取的可编辑文字，因此上传 Word 后会先判断能否取得有效内容。
+Word、PDF 和图片都是本服务支持的输入类型。Word 结果不要求分页，因此服务会先直接读取文档全文。
 
 本服务按以下顺序处理 Word：
 
-1. `.docx`：尝试解析正文、表格、页眉、页脚、脚注和尾注中的文本。
-2. 如果读取到有效文本，直接返回读取结果，完全不执行 OCR。
-3. 如果没有读取到有效文本，将 Word 转为 PDF，再逐页执行 OCR。
-4. `.doc`：先使用 LibreOffice/`soffice` 转成 `.docx`，然后执行相同判断。
+1. 使用 `aspose-words-foss` Python 包读取 `.doc` 或 `.docx` 全文。
+2. 如果读取到有效文字，直接返回 `text`，完全不执行 OCR。
+3. 如果没有读取到有效文字，在内部转换并执行 OCR。
+4. Word 不做真实分页，所有内容合并为一个逻辑页 `page: 1`，字段与 PDF、图片一致。
 
-因此，可编辑 Word 可以避免 OCR 带来的误识别和额外耗时；扫描型 Word 或只有图片、无法直接读取文字的 Word 才进入 OCR 流程。
+因此，可编辑 Word 可以避免 OCR 带来的误识别和额外耗时；无法直接取得文字的扫描型 Word 才进入 OCR 流程。
 
-> 处理旧版 `.doc` 文件需要服务器安装 LibreOffice，并确保 `soffice` 或 `libreoffice` 位于 `PATH` 中。没有该工具时仍可正常处理 `.docx`、PDF 和图片。
+> Word 处理不依赖 LibreOffice 或 Microsoft Office，但需要 `aspose-words-foss`。该包当前要求 Python 3.10–3.12，建议现场统一使用 Python 3.12。
 
 ## 项目结构
 
@@ -57,13 +57,13 @@ OCRServiceApi/
 
 ## 环境要求
 
-- Python 3.10 或更高版本
+- Python 3.10–3.12（推荐 Python 3.12）
 - PaddlePaddle 3.x
 - PaddleOCR 3.x
 - FastAPI
 - PyMuPDF
 - OpenCV
-- LibreOffice（仅处理 `.doc` 时需要）
+- `aspose-words-foss`（Python Word 读取与转换）
 
 本项目默认使用以下离线模型目录：
 
@@ -80,6 +80,18 @@ models/PP-OCRv5_mobile_rec
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
+
+无网络现场应在一台与现场操作系统、CPU 架构和 Python 版本一致的联网机器上提前下载 wheel：
+
+```bash
+python3.12 -m pip download -r requirements.txt -d wheels
+```
+
+将项目和 `wheels/` 一起带到现场后离线安装：
+
+```bash
+python3.12 -m pip install --no-index --find-links=./wheels -r requirements.txt
 ```
 
 确认 OCR 模型已放置到 `models/` 下，然后启动服务。
@@ -122,6 +134,8 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 | `MAX_UPLOAD_SIZE_MB` | `100` | 单个上传文件最大容量 |
 | `MAX_PDF_PAGES` | `200` | PDF 最大页数 |
 | `MAX_QUEUE_SIZE` | `100` | 等待队列最大任务数 |
+| `TEMP_FILE_RETENTION_SECONDS` | `86400` | 孤儿临时文件保留时间，默认 24 小时 |
+| `TEMP_CLEANUP_INTERVAL_SECONDS` | `3600` | 临时文件定时清理间隔，默认 1 小时 |
 | `MAX_WORKERS` | `1` | 后台任务 worker 数量 |
 | `MEMORY_SOFT_LIMIT_MB` | `4096` | 内存软限制 |
 | `MEMORY_HARD_LIMIT_MB` | `5120` | 进程虚拟内存硬限制 |
@@ -137,6 +151,8 @@ MAX_UPLOAD_SIZE_MB=100
 MAX_PDF_PAGES=200
 MAX_QUEUE_SIZE=100
 MAX_WORKERS=1
+TEMP_FILE_RETENTION_SECONDS=86400
+TEMP_CLEANUP_INTERVAL_SECONDS=3600
 ```
 
 ## API 使用
@@ -244,12 +260,19 @@ GET /api/v1/ocr/tasks?limit=20
 {
   "file_type": "word",
   "processing_method": "direct_read",
-  "text_blocks": ["第一段正文", "表格中的文字"],
-  "text": "第一段正文\n表格中的文字"
+  "pages": [
+    {
+      "page": 1,
+      "rec_texts": ["Word 文档中的全部正文内容"],
+      "rec_scores": [1.0],
+      "rec_polys": [],
+      "dt_polys": []
+    }
+  ]
 }
 ```
 
-以上结果表示成功直接读取 Word 内容，处理过程中没有调用 OCR。
+以上结果表示成功直接读取 Word 全文，处理过程中没有调用 OCR。
 
 无法直接读取文字时返回 OCR 结果：
 
@@ -260,7 +283,7 @@ GET /api/v1/ocr/tasks?limit=20
   "pages": [
     {
       "page": 1,
-      "rec_texts": ["扫描页面中的文字"],
+      "rec_texts": ["扫描页面识别出的全部文字"],
       "rec_scores": [0.97],
       "rec_polys": [],
       "dt_polys": []
@@ -295,7 +318,11 @@ GET /api/v1/ocr/tasks?limit=20
 ## 运行数据和清理
 
 - 原始上传文件在任务成功或失败后自动删除。
+- 上传写入失败或任务入队失败时，会立即删除已经生成的残缺文件。
 - PDF 页面直接在内存中处理，不会为整本文档生成临时 PNG。
+- Word 转换文件位于系统临时目录，处理结束或发生异常时自动删除。
+- 后台任务定时扫描 `uploads/` 和 `output/images/`，删除超过保留时间的孤儿文件。
+- 定时清理会排除数据库中 `pending` 和 `processing` 任务使用的源文件。
 - 已完成和失败的任务记录默认保留 7 天。
 - SQLite 最多保留约 100,000 条记录。
 - 服务重启后会恢复数据库中的 `pending` 和 `processing` 任务。
@@ -314,13 +341,13 @@ GET /api/v1/ocr/tasks?limit=20
 
 ### `.doc` 处理失败
 
-旧版 `.doc` 需要 LibreOffice 完成格式转换；无法直接读取的 `.docx` 也需要 LibreOffice 转为 PDF 后 OCR。确认 LibreOffice 已安装：
+Word 处理需要安装项目中的 Python 依赖：
 
 ```bash
-soffice --version
+python -c "import aspose.words_foss; print('aspose-words-foss ready')"
 ```
 
-如果命令不存在，请安装 LibreOffice，或将文档另存为 `.docx` 后上传。
+如果导入失败，请确认使用 Python 3.10–3.12，并从离线 wheel 目录安装依赖。
 
 ### 服务启动较慢
 
