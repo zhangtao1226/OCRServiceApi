@@ -211,21 +211,6 @@ async def get_ocr_result(task_id: str):
     获取 OCR 识别结果。
     - 任务未完成时返回当前状态，告知客户端等待
     - 任务成功时返回结构化识别结果
-
-    结果格式：
-    {
-        "file_type": "pdf" | "image",
-        "pages": [
-            {
-                "page":       1,
-                "rec_texts":  ["文字1", "文字2", ...],
-                "rec_scores": [0.98, 0.95, ...],
-                "rec_polys":  [[坐标], ...],
-                "dt_polys":   [[坐标], ...]
-            },
-            ...
-        ]
-    }
     """
     task = task_manager.get_task(task_id)
     if task is None:
